@@ -1,0 +1,15 @@
+# Environment variables & secrets
+.env
+backend/.env
+frontend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Node / React
+node_modules/
+frontend/dist/
+.DS_Store

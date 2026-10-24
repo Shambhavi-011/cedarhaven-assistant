@@ -3,7 +3,7 @@
 A source-grounded municipal chatbot. The assistant answers resident questions strictly from the three official Town of Cedarhaven policy PDFs (`CH-SRM-01`, `CH-BYL-02`, and `CH-PER-03`), tracks and validates page-level citations, highlights supporting passages in an interactive PDF Evidence Explorer, and refuses unsupported or adversarial queries.
 
 ---
-### Live Link:(https://cedarhaven-assistant-1.onrender.com/)
+### Live Link: https://cedarhaven-assistant-1.onrender.com/
 
 ## 1. Setup Instructions, Dependencies, Environment Variables & Startup Commands
 

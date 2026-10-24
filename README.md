@@ -81,7 +81,8 @@ npm install
 npm run dev
 ```
 Open **`http://localhost:5173`** in your browser.
-Try these questions
+
+#### Try these questions
 Do I need a building permit for a 10 m² shed with electrical wiring, and what is the permit fee? — single document (CH-PER-03).
 I have a deck permit. Can my contractor use a power saw at 8:00 a.m. on Saturday, and leave materials on the public sidewalk? — several documents (CH-BYL-02, CH-PER-03, CH-SRM-01).
 What is the exact parking ticket fine and the setback distance for a residential shed? — details the documents say are not published.

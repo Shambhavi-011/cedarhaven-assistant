@@ -26,7 +26,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
-load_dotenv(os.path.join(BASE_DIR, ".env.example"), override=False)
+
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_TIMEOUT = 20
@@ -456,19 +456,16 @@ class CedarhavenRAGEngine:
             "phone", "url", "website", "schedule", "ticket", "email", "address",
         }
         asks_gap_detail = bool(q_tokens & gap_terms)
+        q_words = q_tokens - STOPWORDS
 
         boosted = scores.copy()
         for i, chunk in enumerate(self.chunks):
-            text_lower = chunk.raw_excerpt.lower()
-            if asks_gap_detail and (
-                chunk.page_number == 8
-                or "not published" in text_lower
-                or "not specified" in text_lower
-            ):
+            # Whole-word match (the old `token in text` matched "fee" inside "feedback").
+            words = set(re.findall(r"[a-z0-9]{3,}", chunk.raw_excerpt.lower()))
+            # Boost pages that explicitly say a detail is not published (no hard-coded page 8).
+            if asks_gap_detail and GAP_RE.search(chunk.raw_excerpt):
                 boosted[i] += 0.12
-            for token in q_tokens - STOPWORDS:
-                if token in text_lower:
-                    boosted[i] += 0.03
+            boosted[i] += 0.03 * len(q_words & words)
 
         ranked = boosted.argsort()[::-1][:top_k]
         return [self.chunks[idx] for idx in ranked]
@@ -508,7 +505,10 @@ STRICT RULES
    state that you are strictly limited to CH-SRM-01, CH-BYL-02 and CH-PER-03 and that such external details
    are not specified in them. Offer to help with Cedarhaven service requests, by-laws, permits or licences.
 4. If the question needs several documents, combine them and cite every document used.
-5. LANGUAGE: write ALL explanatory text in {language}. Keep document names, document IDs (CH-SRM-01 ...),
+5. If the question is genuinely ambiguous (e.g. "what is the fee?" with no permit type), ask ONE short
+   clarifying question instead of guessing, and cite nothing. Separate explicit facts from interpretation;
+   never say a statement is "verified".
+6. LANGUAGE: write ALL explanatory text in {language}. Keep document names, document IDs (CH-SRM-01 ...),
    section codes (SRM 3, BYL 1, PER 2) and page numbers exactly as in the source, in English/Latin digits.
    Keep numbers, times and CAD amounts exact.
 
@@ -801,7 +801,10 @@ do not cover the topic)."""
 
         # 1) Guardrail first: never send injection attempts down the normal path.
         if self._is_injection_attempt(question):
-            return self._refusal_response(language)
+            from evidence import empty_result
+            r = self._refusal_response(language)
+            r.update(empty_result("Request declined: it asks for information outside the supplied documents."))
+            return r
 
         # 2) Retrieval (translate non-English queries to English for TF-IDF).
         english_query = self._to_english_query(question, language)
@@ -872,10 +875,15 @@ do not cover the topic)."""
         )
         if not verified and retrieved and not said_not_specified:
             for c in retrieved[:2]:
-                add(c.doc_id, c.page_number)
+                # previously the top-2 pages were cited blindly, even if irrelevant
+                if self._extract_statements(question, english_query, [c], limit=1):
+                    add(c.doc_id, c.page_number)
 
         # 5) Strict contract for the Evidence Drawer.
-        return {"answer": answer_text, "cited_pages": verified}
+        from evidence import assess
+        result: Dict[str, Any] = {"answer": answer_text, "cited_pages": verified}
+        result.update(assess(self, question, english_query, verified, answer_text))
+        return result
 
     # ------------------------------------------------------------------
     # On-demand evidence (called only when the resident clicks a citation)
@@ -898,7 +906,8 @@ do not cover the topic)."""
         return None
 
     def get_evidence(
-        self, doc_id: str, page_number: int, question: str = ""
+        self, doc_id: str, page_number: int, question: str = "",
+        english_query: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Return the exact PDF page text for one citation, split into segments where
@@ -920,8 +929,9 @@ do not cover the topic)."""
         highlights: List[str] = []
         spans: List[Tuple[int, int]] = []
         if question and not self._is_injection_attempt(question):
-            is_ascii = bool(re.fullmatch(r"[\x00-\x7F]*", question))
-            english_query = self._to_english_query(question, "English" if is_ascii else "auto")
+            if english_query is None:
+                is_ascii = bool(re.fullmatch(r"[\\x00-\\x7F]*", question))
+                english_query = self._to_english_query(question, "English" if is_ascii else "auto")
             top = self._extract_statements(question, english_query, [chunk], limit=3)
             for _, stmt, _, _ in top:
                 highlights.append(stmt)
